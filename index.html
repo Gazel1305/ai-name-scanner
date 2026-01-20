@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Name Scanner & Google Sheets Sync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
+        body { font-family: 'Sarabun', sans-serif; }
+        .loading-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 p-4 md:p-8 text-slate-900">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <div class="flex justify-center mb-2">
+                <div class="bg-indigo-600 p-3 rounded-2xl shadow-lg text-white">
+                    <i class="fa-solid fa-user-check text-3xl"></i>
+                </div>
+            </div>
+            <h1 class="text-3xl font-bold text-slate-800 tracking-tight">AI Sync to Google Sheets</h1>
+            <p class="text-slate-500 mt-2">สแกนรายชื่อและบันทึกข้อมูลแบบ Real-time (HTML Version)</p>
+        </header>
+
+        <!-- URL Config -->
+        <div class="mb-6 bg-indigo-50 p-4 rounded-2xl border border-indigo-100 max-w-2xl mx-auto">
+            <label class="block text-xs font-bold text-indigo-700 uppercase mb-2">Google Apps Script Web App URL:</label>
+            <input type="text" id="sheetUrl" placeholder="https://script.google.com/macros/s/.../exec"
+                class="w-full px-4 py-2 rounded-xl border border-indigo-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm">
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Upload Section -->
+            <div class="lg:col-span-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-200 h-fit">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 text-indigo-600">
+                    <i class="fa-solid fa-upload"></i> จัดการรูปภาพ
+                </h2>
+                
+                <div id="dropZone" onclick="document.getElementById('fileInput').click()" 
+                    class="border-2 border-dashed border-slate-300 rounded-2xl h-64 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all overflow-hidden relative">
+                    <div id="uploadPlaceholder" class="flex flex-col items-center">
+                        <i class="fa-solid fa-camera text-4xl text-slate-400 mb-2"></i>
+                        <p class="text-slate-500 text-sm text-center px-4">คลิกเพื่อเลือกรูปภาพ</p>
+                    </div>
+                    <img id="previewImg" class="hidden w-full h-full object-contain bg-slate-100">
+                    <button id="removeBtn" onclick="event.stopPropagation(); resetImage()" 
+                        class="hidden absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-md hover:bg-red-600">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+                <input type="file" id="fileInput" accept="image/*" class="hidden" onchange="handleFile(this)">
+
+                <button id="processBtn" onclick="processImage()" 
+                    class="w-full mt-6 py-4 rounded-2xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-lg transition-all disabled:bg-slate-200 disabled:text-slate-400">
+                    <i id="processIcon" class="fa-solid fa-paper-plane"></i>
+                    <span id="processText">เริ่มแสกนข้อมูล</span>
+                </button>
+                <p id="statusMsg" class="text-center mt-3 text-sm text-slate-500 italic"></p>
+            </div>
+
+            <!-- Results Section -->
+            <div class="lg:col-span-8 bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col min-h-[500px]">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 text-emerald-600">
+                        <i class="fa-solid fa-table"></i> ผลลัพธ์ (<span id="count">0</span>)
+                    </h2>
+                    <div id="actionButtons" class="hidden flex flex-wrap gap-2 w-full sm:w-auto">
+                        <button onclick="copyToClipboard()" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-semibold">
+                            <i id="copyIcon" class="fa-solid fa-copy"></i> <span id="copyText">คัดลอก</span>
+                        </button>
+                        <button onclick="downloadAsNotepad()" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">
+                            <i class="fa-solid fa-file-lines"></i> บันทึก Notepad
+                        </button>
+                        <button onclick="saveToSheets()" id="saveBtn" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-md">
+                            <i id="saveIcon" class="fa-solid fa-cloud-arrow-up"></i> บันทึกลง Sheets
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-x-auto">
+                    <table id="resultTable" class="w-full text-left border-collapse hidden">
+                        <thead>
+                            <tr class="border-b border-slate-100 font-bold text-xs text-slate-400 uppercase tracking-wider">
+                                <th class="py-3 px-4 w-12">#</th>
+                                <th class="py-3 px-4">ชื่อ (รวมคำนำหน้า)</th>
+                                <th class="py-3 px-4">นามสกุล</th>
+                                <th class="py-3 px-4">บ้านเลขที่</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                    <div id="emptyState" class="h-64 flex flex-col items-center justify-center text-slate-400 italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        <p>ยังไม่มีข้อมูล</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let resultData = [];
+        let base64Image = null;
+        const apiKey = "AIzaSyDPy4UUqb-q6IUfwW2Q_V9SSqf41vOVfp4"; // ใส่ API Key ของคุณที่นี่
+
+        function handleFile(input) {
+            const file = input.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    base64Image = e.target.result.split(',')[1];
+                    document.getElementById('previewImg').src = e.target.result;
+                    document.getElementById('previewImg').classList.remove('hidden');
+                    document.getElementById('uploadPlaceholder').classList.add('hidden');
+                    document.getElementById('removeBtn').classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function resetImage() {
+            document.getElementById('fileInput').value = '';
+            document.getElementById('previewImg').classList.add('hidden');
+            document.getElementById('uploadPlaceholder').classList.remove('hidden');
+            document.getElementById('removeBtn').classList.add('hidden');
+            base64Image = null;
+        }
+
+        async function processImage() {
+    if (!base64Image) {
+        alert("กรุณาเลือกรูปภาพก่อน");
+        return;
+    }
+
+    const btn = document.getElementById('processBtn');
+    const icon = document.getElementById('processIcon');
+    const text = document.getElementById('processText');
+    const status = document.getElementById('statusMsg');
+
+    btn.disabled = true;
+    icon.className = "fa-solid fa-circle-notch loading-spin";
+    text.innerText = "กำลังประมวลผล...";
+    status.innerText = "กำลังวิเคราะห์และแยกข้อมูลด้วย AI...";
+
+    const prompt = `
+        Extract a list of people's information from this image.
+        The data is in Thai.
+        Rules: 1. Prefix+First Name together. 2. Change "น.ส." to "นางสาว". 3. Separate Last Name. 4. Extract House Number (บ้านเลขที่). 
+        Return JSON array of objects: [{"firstName": "...", "lastName": "...", "address": "..."}]
+    `;
+
+    try {
+        // ใช้รุ่น gemini-1.5-flash แทน 2.5 ที่ไม่มีจริง
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        
+        const fetchResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ 
+                    parts: [
+                        { text: prompt }, 
+                        { inlineData: { mimeType: "image/png", data: base64Image } }
+                    ] 
+                }],
+                generationConfig: { 
+                    responseMimeType: "application/json" 
+                }
+            })
+        });
+
+        // ตรวจสอบว่า fetch สำเร็จหรือไม่
+        if (!fetchResponse.ok) {
+            const errorDetails = await fetchResponse.json();
+            throw new Error(errorDetails.error?.message || "เชื่อมต่อ API ไม่สำเร็จ");
+        }
+
+        const data = await fetchResponse.json();
+        
+        // ตรวจสอบโครงสร้างข้อมูลที่ส่งกลับมา
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+            const jsonText = data.candidates[0].content.parts[0].text;
+            resultData = JSON.parse(jsonText);
+            renderTable();
+            status.innerText = "ประมวลผลสำเร็จ";
+        } else {
+            throw new Error("AI ไม่สามารถอ่านข้อมูลจากภาพนี้ได้");
+        }
+
+    } catch (error) {
+        console.error("Error details:", error);
+        status.innerText = "เกิดข้อผิดพลาด: " + error.message;
+    } finally {
+        btn.disabled = false;
+        icon.className = "fa-solid fa-paper-plane";
+        text.innerText = "เริ่มแสกนข้อมูล";
+    }
+}
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            document.getElementById('count').innerText = resultData.length;
+
+            if (resultData.length > 0) {
+                document.getElementById('resultTable').classList.remove('hidden');
+                document.getElementById('emptyState').classList.add('hidden');
+                document.getElementById('actionButtons').classList.remove('hidden');
+
+                resultData.forEach((item, index) => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-slate-50 hover:bg-slate-50 transition-colors";
+                    tr.innerHTML = `
+                        <td class="py-2 px-4 text-slate-300 text-xs font-mono">${index + 1}</td>
+                        <td class="py-2 px-4"><input type="text" value="${item.firstName}" onchange="updateData(${index}, 'firstName', this.value)" class="w-full bg-transparent outline-none text-slate-700 border-b border-transparent focus:border-indigo-300"></td>
+                        <td class="py-2 px-4"><input type="text" value="${item.lastName}" onchange="updateData(${index}, 'lastName', this.value)" class="w-full bg-transparent outline-none text-slate-700 border-b border-transparent focus:border-indigo-300"></td>
+                        <td class="py-2 px-4"><input type="text" value="${item.address}" onchange="updateData(${index}, 'address', this.value)" class="w-full bg-transparent outline-none text-emerald-700 font-mono border-b border-transparent focus:border-emerald-300"></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        function updateData(index, field, value) {
+            resultData[index][field] = value;
+        }
+
+        function copyToClipboard() {
+            const text = resultData.map(item => `${item.firstName}\t${item.lastName}\t${item.address}`).join('\n');
+            const el = document.createElement('textarea');
+            el.value = text;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+
+            const copyText = document.getElementById('copyText');
+            const copyIcon = document.getElementById('copyIcon');
+            copyText.innerText = "คัดลอกแล้ว";
+            copyIcon.className = "fa-solid fa-check-circle text-green-500";
+            setTimeout(() => {
+                copyText.innerText = "คัดลอก";
+                copyIcon.className = "fa-solid fa-copy";
+            }, 2000);
+        }
+
+        function downloadAsNotepad() {
+            const content = resultData.map((item, index) => 
+                `${index + 1}. ชื่อ: ${item.firstName} นามสกุล: ${item.lastName} บ้านเลขที่: ${item.address}`
+            ).join('\n');
+            const blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `list_names_${Date.now()}.txt`;
+            link.click();
+        }
+
+        async function saveToSheets() {
+            const url = document.getElementById('sheetUrl').value;
+            if (!url) {
+                alert("กรุณาใส่ Web App URL ก่อน");
+                return;
+            }
+
+            const icon = document.getElementById('saveIcon');
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true;
+            icon.className = "fa-solid fa-circle-notch loading-spin";
+
+            try {
+                await fetch(url, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(resultData)
+                });
+                alert("ส่งข้อมูลเรียบร้อยแล้ว!");
+            } catch (error) {
+                alert("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+            } finally {
+                btn.disabled = false;
+                icon.className = "fa-solid fa-cloud-arrow-up";
+            }
+        }
+    </script>
+</body>
+
+</html>
+
+
+
+
+
